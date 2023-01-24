@@ -6,6 +6,7 @@ name = "pypi"
 [packages]
 gs-usb = "*"
 libusb-package = "*"
+cantools = "*"
 
 [dev-packages]
 pytest = "*"

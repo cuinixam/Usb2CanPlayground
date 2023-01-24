@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from pathlib import Path
 import time
 from gs_usb.gs_usb import GsUsb
 from gs_usb.gs_usb_frame import GsUsbFrame
@@ -13,14 +14,32 @@ from gs_usb.gs_usb import (
     GS_CAN_MODE_LOOP_BACK,
     GS_CAN_MODE_NORMAL
 )
+import cantools
 
+
+def get_project_root_dir() -> Path:
+        return Path(__file__).parent
+
+TEST_DBC_FILE = get_project_root_dir().joinpath('vehicle.dbc')
+
+def test_send_receive_messages_from_dbc():
+    devs = scan()
+    assert len(devs) > 0, "At least one USB2CAN device shall be found"
+    dev = devs[0]
+    send_receive_messages_from_dbc(dev)
+
+def test_load_dbc_file():
+    can_database = cantools.db.load_file(TEST_DBC_FILE)
+    assert can_database, "shall be able to load the can database file"
+    assert len(can_database.messages) == 2
+    message1 = can_database.get_message_by_name("ECU_MSG1")
+    assert message1, "ECU_MSG1 message shall exist"
 
 def test_scan():
     devs = scan()
     assert len(devs)
     print(f"Discovered devices: {devs }")
     send_receive(devs[0])
-    
 
 def scan():
     r"""
@@ -84,6 +103,67 @@ def send_receive(device: GsUsb):
             end_time = time.time() + 1
             n += 1
             n %= len(frames)
+
+            if device.send(frames[n]):
+                print("TX  {}".format(frames[n]))
+    # Make sure the device is stopped before exit
+    device.stop() 
+
+
+def send_receive_messages_from_dbc(device: GsUsb):
+    # Close before Start device in case the device was not properly stop last time
+    # If do not stop the device, bitrate setting will be fail.
+    device.stop() 
+
+    # Configuration
+    if not device.set_bitrate(1000000):
+        print("Can not set bitrate for gs_usb")
+        return
+    
+    # Start device, If you have only one device for test, pls use the loop-back mode,
+    #device.start(GS_CAN_MODE_LOOP_BACK)
+    device.start(GS_CAN_MODE_NORMAL)
+    
+    can_database = cantools.db.load_file(TEST_DBC_FILE)
+    assert can_database, "shall be able to load the can database file"
+    ecu_message_1 = can_database.get_message_by_name("ECU_MSG1")
+    ecu_message_2 = can_database.get_message_by_name("ECU_MSG2")
+    
+    # Prepare frames
+    engine_speed_frame = GsUsbFrame(
+        can_id=ecu_message_1.frame_id,
+        data=ecu_message_1.encode({'EngineSpeed': 600})
+    )
+    vehicle_speed_frame = GsUsbFrame(
+        can_id=ecu_message_2.frame_id,
+        data=ecu_message_2.encode({'VehicleSpeed': 130})
+    )
+    frames = [
+        engine_speed_frame,
+        vehicle_speed_frame
+    ]
+
+    # Read all the time and send message in each second
+    end_time, n = time.time() + 1, -1
+    events_counter = 0
+    while events_counter < 5:
+        iframe = GsUsbFrame()
+        if device.read(iframe, 1):
+            # if you don't want to receive the error frame. filter out it.
+            # otherwise you will receive a lot of error frame when your device do not connet to CAN-BUS
+            if iframe.can_id & CAN_ERR_FLAG != CAN_ERR_FLAG:
+                if iframe.can_id == engine_speed_frame.can_id:
+                    print("RX Engine  Speed {}".format(iframe))
+                elif iframe.can_id == vehicle_speed_frame.can_id:
+                    print("RX Vehicle Speed {}".format(iframe))
+                else:
+                    print("RX               {}".format(iframe))
+
+        if time.time() - end_time >= 0:
+            end_time = time.time() + 1
+            n += 1
+            n %= len(frames)
+            events_counter += 1
 
             if device.send(frames[n]):
                 print("TX  {}".format(frames[n]))
