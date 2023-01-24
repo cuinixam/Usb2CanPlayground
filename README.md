@@ -9,3 +9,7 @@ To start working:
   * then select the `.venv: pipenv` Python version
 
 Have fun!
+
+## References
+
+* Online editor/creator for dbc files: https://www.csselectronics.com/pages/dbc-editor-can-bus-database
